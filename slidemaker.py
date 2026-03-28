@@ -24,14 +24,25 @@ TOKEN_FILE = os.path.join(BASE_DIR, "token.json")
 
 # --- BACKEND SELECTION ---
 
-def get_webapp_url():
+def read_env():
+    """Read all key=value pairs from .env file."""
+    env = {}
     if os.path.exists(ENV_FILE):
         with open(ENV_FILE) as f:
             for line in f:
                 line = line.strip()
-                if line.startswith("WEBAPP_URL="):
-                    return line.split("=", 1)[1].strip().strip("'\"")
-    return None
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip().strip("'\"")
+    return env
+
+
+def get_webapp_url():
+    return read_env().get("WEBAPP_URL")
+
+
+def get_api_key():
+    return read_env().get("API_KEY")
 
 
 def use_webapp():
@@ -45,7 +56,10 @@ def webapp_request(action, **kwargs):
     if not url:
         print("ERROR: WEBAPP_URL not set in .env", file=sys.stderr)
         sys.exit(1)
+    api_key = get_api_key()
     payload = {"action": action, **kwargs}
+    if api_key:
+        payload["apiKey"] = api_key
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:

@@ -5,30 +5,63 @@
  *   - Execute as: Me
  *   - Who has access: Anyone with the link (or "Anyone in [org]")
  *
- * All requests are POST with JSON body: {action: "...", ...params}
+ * All requests are POST with JSON body: {action: "...", apiKey: "...", ...params}
+ *
+ * SECURITY:
+ *   - API_KEY: shared secret, must match on every request
+ *   - ALLOWED_TEMPLATES: only these template IDs can be copied
+ *   - CREATED_BY: tracks presentation IDs created by this app (Script Properties)
+ *   - Only created presentations or allowed templates can be read/edited
+ *   - SHARE_WITH: email to auto-share created presentations with
  */
 
-const TEMPLATE_ID = '1cWqfy4vpwbmlgPaN09ha02QILAj3phf_akY9C4VqtVE';
+// --- CONFIGURATION ---
+// Set these in Script Properties (Project Settings > Script Properties):
+//   API_KEY            - shared secret (required)
+//   ALLOWED_TEMPLATES  - comma-separated list of template presentation IDs
+//   SHARE_WITH         - email address to share created presentations with (optional)
+
+function getConfig() {
+  const props = PropertiesService.getScriptProperties();
+  return {
+    apiKey: props.getProperty('API_KEY') || '',
+    allowedTemplates: (props.getProperty('ALLOWED_TEMPLATES') || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean),
+    shareWith: props.getProperty('SHARE_WITH') || '',
+  };
+}
 
 function doPost(e) {
   try {
     const req = JSON.parse(e.postData.contents);
+    const config = getConfig();
+
+    // --- API KEY CHECK ---
+    if (config.apiKey && req.apiKey !== config.apiKey) {
+      return jsonResponse({error: 'Invalid API key'});
+    }
+
+    // --- ACTION ROUTING ---
     let result;
 
     switch (req.action) {
       case 'inspect':
-        result = doInspect(req.presentationId || TEMPLATE_ID);
+        var inspectId = req.presentationId || config.allowedTemplates[0];
+        assertAllowed(inspectId, config);
+        result = doInspect(inspectId);
         break;
       case 'create':
-        result = doCreate(req);
+        result = doCreate(req, config);
         break;
       case 'get':
+        assertAllowed(req.presentationId, config);
         result = doGet(req.presentationId);
         break;
       case 'edit':
+        assertAllowed(req.presentationId, config);
         result = doEdit(req.presentationId, req.requests);
         break;
       case 'thumbnail':
+        assertAllowed(req.presentationId, config);
         result = doThumbnail(req.presentationId, req.pageObjectId);
         break;
       default:
@@ -39,6 +72,30 @@ function doPost(e) {
   } catch (err) {
     return jsonResponse({error: err.message, stack: err.stack});
   }
+}
+
+// --- ACCESS CONTROL ---
+
+function getCreatedIds() {
+  var raw = PropertiesService.getScriptProperties().getProperty('CREATED_IDS') || '[]';
+  return JSON.parse(raw);
+}
+
+function addCreatedId(presId) {
+  var ids = getCreatedIds();
+  ids.push(presId);
+  // Keep last 500 to avoid hitting property size limits
+  if (ids.length > 500) ids = ids.slice(-500);
+  PropertiesService.getScriptProperties().setProperty('CREATED_IDS', JSON.stringify(ids));
+}
+
+function assertAllowed(presentationId, config) {
+  if (!presentationId) throw new Error('No presentation ID provided');
+  // Allow access to registered templates
+  if (config.allowedTemplates.indexOf(presentationId) !== -1) return;
+  // Allow access to presentations created by this app
+  if (getCreatedIds().indexOf(presentationId) !== -1) return;
+  throw new Error('Access denied: presentation ' + presentationId + ' is not an allowed template or created by this app');
 }
 
 function jsonResponse(data) {
@@ -73,13 +130,16 @@ function doInspect(presentationId) {
 
 // --- CREATE ---
 
-function doCreate(req) {
+function doCreate(req, config) {
   const title = req.title || 'Untitled Presentation';
   const keepIndices = new Set(req.keep_slides || []);
   const replacements = req.replacements || {};
 
-  // 1. Copy template
-  const templateId = req.templateId || TEMPLATE_ID;
+  // 1. Copy template (must be in allowed list)
+  const templateId = req.templateId || config.allowedTemplates[0];
+  if (config.allowedTemplates.indexOf(templateId) === -1) {
+    throw new Error('Template ' + templateId + ' is not in the allowed list');
+  }
   const copy = DriveApp.getFileById(templateId).makeCopy(title);
   const presId = copy.getId();
   const url = 'https://docs.google.com/presentation/d/' + presId + '/edit';
@@ -128,6 +188,14 @@ function doCreate(req) {
       textReqs.push({insertText: {objectId: elemId, text: replacements[elemId], insertionIndex: 0}});
     }
     Slides.Presentations.batchUpdate({requests: textReqs}, presId);
+  }
+
+  // 6. Track this presentation as created by the app
+  addCreatedId(presId);
+
+  // 7. Auto-share with configured email
+  if (config.shareWith) {
+    copy.addEditor(config.shareWith);
   }
 
   return {presentationId: presId, url: url};

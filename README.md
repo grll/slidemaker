@@ -14,20 +14,34 @@ No Google Cloud project needed. Everything runs inside Google's own sandbox.
 
 1. Go to [script.google.com](https://script.google.com) and create a new project
 2. Replace the default code with the contents of `appscript/Code.gs`
-3. In the left sidebar, click **Services** → **+** → add **Google Slides API** (listed as `Slides`, keep default version `v1`)
-4. Click **Deploy** → **New deployment**
+3. In the editor, click **Project Settings** (gear icon) → check **Show "appsscript.json" manifest file** → go back to Editor and replace `appsscript.json` with the contents of `appscript/appsscript.json`
+4. In the left sidebar, click **Services** → **+** → add **Google Slides API** (listed as `Slides`, keep default version `v1`)
+5. Set up **Script Properties** (Project Settings → Script Properties → Add):
+   - `API_KEY` — a random secret string (generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`)
+   - `ALLOWED_TEMPLATES` — comma-separated list of template presentation IDs (e.g. `1cWqfy4vpwbmlgPaN09ha02QILAj3phf_akY9C4VqtVE`)
+   - `SHARE_WITH` — (optional) your email address to auto-share created presentations with you
+6. Click **Deploy** → **New deployment**
    - Type: **Web app**
    - Execute as: **Me**
    - Who has access: **Anyone** (or **Anyone in [your organization]**)
-5. Click **Deploy**, authorize when prompted, and copy the web app URL
-6. Create a `.env` file in the project root:
+7. Click **Deploy**, authorize when prompted, and copy the web app URL
+8. Create a `.env` file in the project root:
    ```
    WEBAPP_URL=https://script.google.com/macros/s/XXXX/exec
+   API_KEY=<same key you set in Script Properties>
    ```
-7. Test it:
+9. Test it:
    ```
    python slidemaker.py auth
    ```
+
+#### Security model
+
+The Apps Script backend enforces three layers of access control:
+
+- **API key**: every request must include a matching secret. Without it, the web app URL alone is useless.
+- **Allowed templates**: only template IDs listed in `ALLOWED_TEMPLATES` can be copied. The app cannot access any other file in your Drive.
+- **Created presentations tracking**: the app tracks which presentations it created (in Script Properties). Only those presentations — and the allowed templates — can be read, edited, or have thumbnails downloaded. Access to any other file is denied.
 
 ### Option B: Direct Google API (for personal accounts)
 
