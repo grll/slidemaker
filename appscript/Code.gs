@@ -28,6 +28,9 @@ function doPost(e) {
       case 'edit':
         result = doEdit(req.presentationId, req.requests);
         break;
+      case 'thumbnail':
+        result = doThumbnail(req.presentationId, req.pageObjectId);
+        break;
       default:
         return jsonResponse({error: 'Unknown action: ' + req.action});
     }
@@ -76,7 +79,8 @@ function doCreate(req) {
   const replacements = req.replacements || {};
 
   // 1. Copy template
-  const copy = DriveApp.getFileById(TEMPLATE_ID).makeCopy(title);
+  const templateId = req.templateId || TEMPLATE_ID;
+  const copy = DriveApp.getFileById(templateId).makeCopy(title);
   const presId = copy.getId();
   const url = 'https://docs.google.com/presentation/d/' + presId + '/edit';
 
@@ -161,12 +165,86 @@ function doEdit(presentationId, ops) {
     if (op.replaceText) {
       apiRequests.push({deleteText: {objectId: op.replaceText.objectId, textRange: {type: 'ALL'}}});
       apiRequests.push({insertText: {objectId: op.replaceText.objectId, text: op.replaceText.text, insertionIndex: 0}});
+
     } else if (op.deleteSlide) {
       apiRequests.push({deleteObject: {objectId: op.deleteSlide.objectId}});
+
+    } else if (op.deleteElement) {
+      apiRequests.push({deleteObject: {objectId: op.deleteElement.objectId}});
+
     } else if (op.duplicateSlide) {
       apiRequests.push({duplicateObject: {objectId: op.duplicateSlide.objectId}});
+
     } else if (op.moveSlide) {
       apiRequests.push({updateSlidesPosition: {slideObjectIds: [op.moveSlide.objectId], insertionIndex: op.moveSlide.insertionIndex}});
+
+    } else if (op.moveElement) {
+      var m = op.moveElement;
+      apiRequests.push({updatePageElementTransform: {
+        objectId: m.objectId,
+        transform: {scaleX: m.scaleX || 1, scaleY: m.scaleY || 1, shearX: 0, shearY: 0, unit: 'PT', translateX: m.x || 0, translateY: m.y || 0},
+        applyMode: 'ABSOLUTE'
+      }});
+
+    } else if (op.resizeElement) {
+      var r = op.resizeElement;
+      apiRequests.push({updatePageElementTransform: {
+        objectId: r.objectId,
+        transform: {scaleX: r.scaleX || 1, scaleY: r.scaleY || 1, shearX: 0, shearY: 0, unit: 'PT', translateX: 0, translateY: 0},
+        applyMode: 'RELATIVE'
+      }});
+
+    } else if (op.textStyle) {
+      var s = op.textStyle;
+      var style = {};
+      var fields = [];
+      if (s.fontSize) { style.fontSize = {magnitude: s.fontSize, unit: 'PT'}; fields.push('fontSize'); }
+      if (s.bold !== undefined) { style.bold = s.bold; fields.push('bold'); }
+      if (s.italic !== undefined) { style.italic = s.italic; fields.push('italic'); }
+      if (s.fontFamily) { style.fontFamily = s.fontFamily; fields.push('fontFamily'); }
+      if (s.color) {
+        var c = s.color;
+        if (typeof c === 'string' && c.charAt(0) === '#') {
+          c = {red: parseInt(c.substr(1,2),16)/255, green: parseInt(c.substr(3,2),16)/255, blue: parseInt(c.substr(5,2),16)/255};
+        }
+        style.foregroundColor = {opaqueColor: {rgbColor: c}};
+        fields.push('foregroundColor');
+      }
+      if (fields.length > 0) {
+        apiRequests.push({updateTextStyle: {objectId: s.objectId, textRange: s.textRange || {type: 'ALL'}, style: style, fields: fields.join(',')}});
+      }
+
+    } else if (op.paragraphStyle) {
+      var p = op.paragraphStyle;
+      var pStyle = {};
+      var pFields = [];
+      if (p.alignment) { pStyle.alignment = p.alignment; pFields.push('alignment'); }
+      if (p.lineSpacing) { pStyle.lineSpacing = p.lineSpacing; pFields.push('lineSpacing'); }
+      if (p.spaceAbove !== undefined) { pStyle.spaceAbove = {magnitude: p.spaceAbove, unit: 'PT'}; pFields.push('spaceAbove'); }
+      if (p.spaceBelow !== undefined) { pStyle.spaceBelow = {magnitude: p.spaceBelow, unit: 'PT'}; pFields.push('spaceBelow'); }
+      if (pFields.length > 0) {
+        apiRequests.push({updateParagraphStyle: {objectId: p.objectId, textRange: p.textRange || {type: 'ALL'}, style: pStyle, fields: pFields.join(',')}});
+      }
+
+    } else if (op.shapeFill) {
+      var f = op.shapeFill;
+      var fc = f.color;
+      if (typeof fc === 'string' && fc.charAt(0) === '#') {
+        fc = {red: parseInt(fc.substr(1,2),16)/255, green: parseInt(fc.substr(3,2),16)/255, blue: parseInt(fc.substr(5,2),16)/255};
+      }
+      apiRequests.push({updateShapeProperties: {
+        objectId: f.objectId,
+        shapeProperties: {shapeBackgroundFill: {solidFill: {color: {rgbColor: fc}}}},
+        fields: 'shapeBackgroundFill.solidFill.color'
+      }});
+
+    } else if (op.addImage) {
+      var img = op.addImage;
+      var props = {pageObjectId: img.pageId};
+      if (img.size) { props.size = {width: {magnitude: img.size.width, unit: 'PT'}, height: {magnitude: img.size.height, unit: 'PT'}}; }
+      if (img.position) { props.transform = {scaleX:1, scaleY:1, shearX:0, shearY:0, translateX: img.position.x, translateY: img.position.y, unit: 'PT'}; }
+      apiRequests.push({createImage: {url: img.url, elementProperties: props}});
+
     } else if (op.raw) {
       apiRequests.push(op.raw);
     }
@@ -177,6 +255,15 @@ function doEdit(presentationId, ops) {
     return {applied: apiRequests.length, replies: (result.replies || []).length};
   }
   return {applied: 0};
+}
+
+// --- THUMBNAIL ---
+
+function doThumbnail(presentationId, pageObjectId) {
+  var thumb = Slides.Presentations.Pages.getThumbnail(presentationId, pageObjectId, {
+    'thumbnailProperties.thumbnailSize': 'LARGE'
+  });
+  return {contentUrl: thumb.contentUrl};
 }
 
 // --- HELPERS ---

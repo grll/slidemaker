@@ -1,8 +1,8 @@
 # Slidemaker
 
-Create and edit Google Slides presentations from a template, driven by Claude.
+Create and edit Google Slides presentations from templates, driven by Claude.
 
-Uses a [Slidesgo infographic template](https://docs.google.com/presentation/d/1cWqfy4vpwbmlgPaN09ha02QILAj3phf_akY9C4VqtVE) with 35 pre-designed slide layouts. Claude picks the right slides for your content, populates them, and can refine them through conversation.
+Supports multiple templates with visual thumbnails. Claude picks the right slides for your content by looking at the actual slide designs, populates them, and iterates by reviewing thumbnails of the result.
 
 ## Setup
 
@@ -52,33 +52,66 @@ Requires a Google Cloud project with OAuth credentials.
 
 The backend is selected automatically: if `.env` contains `WEBAPP_URL`, the Apps Script backend is used. Otherwise, the direct API backend is used.
 
+## Register a template
+
+Before creating presentations, register at least one template:
+
+```
+python slidemaker.py register <presentation_id> <name>
+```
+
+This downloads the slide catalog (text elements + object IDs) and a PNG thumbnail for every slide. Thumbnails are stored in `templates/<name>/thumbnails/`.
+
+List registered templates:
+
+```
+python slidemaker.py templates
+```
+
 ## Usage
 
-### Inspect the template
+### Inspect a template
 
 Show all slides and their text elements (with object IDs for targeting replacements):
 
 ```
-python slidemaker.py inspect
+python slidemaker.py inspect --template <name>
+```
+
+Or inspect any presentation by ID:
+
+```
+python slidemaker.py inspect <presentation_id>
 ```
 
 ### Create a presentation
 
 ```
-python slidemaker.py create '{
+python slidemaker.py create --template <name> '{
   "title": "Q1 Review",
   "keep_slides": [0, 5, 13],
   "replacements": {
-    "g708a6ee8a1_0_59": "Q1 REVIEW\n2025",
-    "g708a6ee8a1_0_60": "Company performance overview"
+    "element_object_id": "New text",
+    "another_element_id": "More text"
   }
 }'
 ```
 
 - `keep_slides`: indices of template slides to keep (in order)
 - `replacements`: map of element object ID → new text
+- `template` can also be specified inside the JSON as `"template": "<name>"`
 
 Returns `{"presentationId": "...", "url": "..."}`.
+
+### Review a presentation (visual feedback)
+
+Download thumbnails of a created presentation to visually review the result:
+
+```
+python slidemaker.py thumbnails <presentation_id>
+```
+
+Thumbnails are saved to `review/` by default (override with `--output`). Claude reads these images to spot text overflow, layout issues, or content problems, then edits the presentation to fix them.
 
 ### Read a presentation
 
@@ -86,7 +119,7 @@ Returns `{"presentationId": "...", "url": "..."}`.
 python slidemaker.py get <presentation_id>
 ```
 
-Returns all slides with their text elements and object IDs.
+Returns all slides with their text elements and object IDs as JSON.
 
 ### Edit a presentation
 
@@ -101,27 +134,11 @@ python slidemaker.py edit <presentation_id> '[
 
 Raw Slides API requests can also be passed via `{"raw": {<batchUpdate request>}}`.
 
-## Template slides
+## Workflow
 
-| Index | Layout | Use for |
-|-------|--------|---------|
-| 0 | Title slide | Opening slide with title + subtitle |
-| 1 | About/intro | Title + paragraph |
-| 2 | SWOT | 4-quadrant analysis |
-| 3 | Timeline | 4 time periods |
-| 5 | 4-item comparison | Feature comparison, differentiators |
-| 6 | What We Do | 4 items with percentages |
-| 8 | Sales funnel | 4-stage funnel |
-| 9 | Process | 4 numbered steps |
-| 10 | User persona | Bio, motivations, traits |
-| 11 | 6-item process | How it works |
-| 13 | 3-step process | Simple steps |
-| 14 | Phases | 3 numbered phases |
-| 15 | Services | 5 numbered items |
-| 22 | Strategy | 3 numbered strategy items |
-| 24 | Solutions | 3 items |
-| 26 | Events | 4 events |
-| 27 | Percentages | 4 items with % bars |
-| 29 | Predicted results | Chart + KPI numbers |
-
-Run `python slidemaker.py inspect` for the full catalog with element IDs.
+1. **Register** a template once (`register`)
+2. **Browse** template thumbnails to pick the right slides for your content
+3. **Create** a presentation with selected slides and text replacements (`create`)
+4. **Review** the result by downloading thumbnails (`thumbnails`)
+5. **Edit** to fix any issues spotted in the review (`edit`)
+6. Repeat 4-5 until the slides look right

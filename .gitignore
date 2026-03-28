@@ -1,4 +1,10 @@
 credentials.json
 token.json
+.env
 venv/
 __pycache__/
+review/
+review_*/
+templates/*/thumbnails/
+template_catalog.json
+.DS_Store
