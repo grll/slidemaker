@@ -608,6 +608,207 @@ def build_edit_requests(ops):
                 }
             api_requests.append(req)
 
+        elif "insertText" in op:
+            # Insert text into an element (shape or table cell)
+            t = op["insertText"]
+            req = {
+                "insertText": {
+                    "objectId": t["objectId"],
+                    "text": t["text"],
+                    "insertionIndex": t.get("insertionIndex", 0),
+                }
+            }
+            api_requests.append(req)
+
+        elif "replaceAllText" in op:
+            # Global find & replace across entire presentation
+            r = op["replaceAllText"]
+            api_requests.append({
+                "replaceAllText": {
+                    "containsText": {"text": r["find"], "matchCase": r.get("matchCase", True)},
+                    "replaceText": r["replace"],
+                }
+            })
+
+        elif "createShape" in op:
+            # Add a new shape (TEXT_BOX, RECTANGLE, ELLIPSE, etc.)
+            s = op["createShape"]
+            req = {
+                "createShape": {
+                    "shapeType": s.get("shapeType", "TEXT_BOX"),
+                    "elementProperties": {
+                        "pageObjectId": s["pageId"],
+                        "size": {
+                            "width": {"magnitude": s.get("width", 200), "unit": "PT"},
+                            "height": {"magnitude": s.get("height", 50), "unit": "PT"},
+                        },
+                        "transform": {
+                            "scaleX": 1, "scaleY": 1, "shearX": 0, "shearY": 0,
+                            "translateX": s.get("x", 100), "translateY": s.get("y", 100),
+                            "unit": "PT",
+                        },
+                    }
+                }
+            }
+            if "objectId" in s:
+                req["createShape"]["objectId"] = s["objectId"]
+            api_requests.append(req)
+
+        elif "createLine" in op:
+            # Add a line or arrow
+            ln = op["createLine"]
+            req = {
+                "createLine": {
+                    "lineCategory": ln.get("category", "STRAIGHT"),
+                    "elementProperties": {
+                        "pageObjectId": ln["pageId"],
+                        "size": {
+                            "width": {"magnitude": ln.get("width", 200), "unit": "PT"},
+                            "height": {"magnitude": ln.get("height", 0), "unit": "PT"},
+                        },
+                        "transform": {
+                            "scaleX": 1, "scaleY": 1, "shearX": 0, "shearY": 0,
+                            "translateX": ln.get("x", 100), "translateY": ln.get("y", 100),
+                            "unit": "PT",
+                        },
+                    }
+                }
+            }
+            api_requests.append(req)
+
+        elif "createTable" in op:
+            # Add a table
+            t = op["createTable"]
+            req = {
+                "createTable": {
+                    "rows": t.get("rows", 3),
+                    "columns": t.get("columns", 3),
+                    "elementProperties": {
+                        "pageObjectId": t["pageId"],
+                        "size": {
+                            "width": {"magnitude": t.get("width", 500), "unit": "PT"},
+                            "height": {"magnitude": t.get("height", 200), "unit": "PT"},
+                        },
+                        "transform": {
+                            "scaleX": 1, "scaleY": 1, "shearX": 0, "shearY": 0,
+                            "translateX": t.get("x", 50), "translateY": t.get("y", 100),
+                            "unit": "PT",
+                        },
+                    }
+                }
+            }
+            if "objectId" in t:
+                req["createTable"]["objectId"] = t["objectId"]
+            api_requests.append(req)
+
+        elif "insertTableText" in op:
+            # Insert text into a table cell
+            t = op["insertTableText"]
+            api_requests.append({
+                "insertText": {
+                    "objectId": t["tableId"],
+                    "cellLocation": {
+                        "rowIndex": t["row"],
+                        "columnIndex": t["column"],
+                    },
+                    "text": t["text"],
+                    "insertionIndex": 0,
+                }
+            })
+
+        elif "slideBackground" in op:
+            # Change slide background color
+            bg = op["slideBackground"]
+            c = bg["color"]
+            if isinstance(c, str) and c.startswith("#"):
+                r_val = int(c[1:3], 16) / 255
+                g_val = int(c[3:5], 16) / 255
+                b_val = int(c[5:7], 16) / 255
+                c = {"red": r_val, "green": g_val, "blue": b_val}
+            api_requests.append({
+                "updatePageProperties": {
+                    "objectId": bg["pageId"],
+                    "pageProperties": {
+                        "pageBackgroundFill": {
+                            "solidFill": {"color": {"rgbColor": c}}
+                        }
+                    },
+                    "fields": "pageBackgroundFill.solidFill.color",
+                }
+            })
+
+        elif "groupObjects" in op:
+            # Group elements together
+            g = op["groupObjects"]
+            api_requests.append({
+                "groupObjects": {
+                    "childrenObjectIds": g["objectIds"],
+                }
+            })
+
+        elif "ungroupObjects" in op:
+            # Ungroup a group
+            api_requests.append({
+                "ungroupObjects": {
+                    "objectIds": [op["ungroupObjects"]["objectId"]],
+                }
+            })
+
+        elif "updateImageProperties" in op:
+            # Modify image: transparency, brightness, contrast, recolor
+            img = op["updateImageProperties"]
+            props = {}
+            fields = []
+            if "transparency" in img:
+                props["transparency"] = img["transparency"]
+                fields.append("transparency")
+            if "brightness" in img:
+                props["brightness"] = img["brightness"]
+                fields.append("brightness")
+            if "contrast" in img:
+                props["contrast"] = img["contrast"]
+                fields.append("contrast")
+            if "recolor" in img:
+                props["recolor"] = {"recolorStops": img["recolor"]}
+                fields.append("recolor")
+            if fields:
+                api_requests.append({
+                    "updateImageProperties": {
+                        "objectId": img["objectId"],
+                        "imageProperties": props,
+                        "fields": ",".join(fields),
+                    }
+                })
+
+        elif "shapeOutline" in op:
+            # Change shape outline/border
+            o = op["shapeOutline"]
+            outline = {}
+            fields_parts = []
+            if "color" in o:
+                c = o["color"]
+                if isinstance(c, str) and c.startswith("#"):
+                    r_val = int(c[1:3], 16) / 255
+                    g_val = int(c[3:5], 16) / 255
+                    b_val = int(c[5:7], 16) / 255
+                    c = {"red": r_val, "green": g_val, "blue": b_val}
+                outline["outlineFill"] = {"solidFill": {"color": {"rgbColor": c}}}
+                fields_parts.append("outline.outlineFill.solidFill.color")
+            if "weight" in o:
+                outline["weight"] = {"magnitude": o["weight"], "unit": "PT"}
+                fields_parts.append("outline.weight")
+            if "dashStyle" in o:
+                outline["dashStyle"] = o["dashStyle"]  # SOLID, DOT, DASH, etc.
+                fields_parts.append("outline.dashStyle")
+            if fields_parts:
+                api_requests.append({
+                    "updateShapeProperties": {
+                        "objectId": o["objectId"],
+                        "shapeProperties": {"outline": outline},
+                        "fields": ",".join(fields_parts),
+                    }
+                })
+
         elif "raw" in op:
             api_requests.append(op["raw"])
 

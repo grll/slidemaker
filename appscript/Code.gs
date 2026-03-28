@@ -313,6 +313,109 @@ function doEdit(presentationId, ops) {
       if (img.position) { props.transform = {scaleX:1, scaleY:1, shearX:0, shearY:0, translateX: img.position.x, translateY: img.position.y, unit: 'PT'}; }
       apiRequests.push({createImage: {url: img.url, elementProperties: props}});
 
+    } else if (op.insertText) {
+      apiRequests.push({insertText: {objectId: op.insertText.objectId, text: op.insertText.text, insertionIndex: op.insertText.insertionIndex || 0}});
+
+    } else if (op.replaceAllText) {
+      apiRequests.push({replaceAllText: {
+        containsText: {text: op.replaceAllText.find, matchCase: op.replaceAllText.matchCase !== false},
+        replaceText: op.replaceAllText.replace
+      }});
+
+    } else if (op.createShape) {
+      var cs = op.createShape;
+      var csReq = {createShape: {
+        shapeType: cs.shapeType || 'TEXT_BOX',
+        elementProperties: {
+          pageObjectId: cs.pageId,
+          size: {width: {magnitude: cs.width || 200, unit: 'PT'}, height: {magnitude: cs.height || 50, unit: 'PT'}},
+          transform: {scaleX:1, scaleY:1, shearX:0, shearY:0, translateX: cs.x || 100, translateY: cs.y || 100, unit: 'PT'}
+        }
+      }};
+      if (cs.objectId) csReq.createShape.objectId = cs.objectId;
+      apiRequests.push(csReq);
+
+    } else if (op.createLine) {
+      var cl = op.createLine;
+      apiRequests.push({createLine: {
+        lineCategory: cl.category || 'STRAIGHT',
+        elementProperties: {
+          pageObjectId: cl.pageId,
+          size: {width: {magnitude: cl.width || 200, unit: 'PT'}, height: {magnitude: cl.height || 0, unit: 'PT'}},
+          transform: {scaleX:1, scaleY:1, shearX:0, shearY:0, translateX: cl.x || 100, translateY: cl.y || 100, unit: 'PT'}
+        }
+      }});
+
+    } else if (op.createTable) {
+      var ct = op.createTable;
+      var ctReq = {createTable: {
+        rows: ct.rows || 3, columns: ct.columns || 3,
+        elementProperties: {
+          pageObjectId: ct.pageId,
+          size: {width: {magnitude: ct.width || 500, unit: 'PT'}, height: {magnitude: ct.height || 200, unit: 'PT'}},
+          transform: {scaleX:1, scaleY:1, shearX:0, shearY:0, translateX: ct.x || 50, translateY: ct.y || 100, unit: 'PT'}
+        }
+      }};
+      if (ct.objectId) ctReq.createTable.objectId = ct.objectId;
+      apiRequests.push(ctReq);
+
+    } else if (op.insertTableText) {
+      var tt = op.insertTableText;
+      apiRequests.push({insertText: {
+        objectId: tt.tableId,
+        cellLocation: {rowIndex: tt.row, columnIndex: tt.column},
+        text: tt.text,
+        insertionIndex: 0
+      }});
+
+    } else if (op.slideBackground) {
+      var bg = op.slideBackground;
+      var bgc = bg.color;
+      if (typeof bgc === 'string' && bgc.charAt(0) === '#') {
+        bgc = {red: parseInt(bgc.substr(1,2),16)/255, green: parseInt(bgc.substr(3,2),16)/255, blue: parseInt(bgc.substr(5,2),16)/255};
+      }
+      apiRequests.push({updatePageProperties: {
+        objectId: bg.pageId,
+        pageProperties: {pageBackgroundFill: {solidFill: {color: {rgbColor: bgc}}}},
+        fields: 'pageBackgroundFill.solidFill.color'
+      }});
+
+    } else if (op.groupObjects) {
+      apiRequests.push({groupObjects: {childrenObjectIds: op.groupObjects.objectIds}});
+
+    } else if (op.ungroupObjects) {
+      apiRequests.push({ungroupObjects: {objectIds: [op.ungroupObjects.objectId]}});
+
+    } else if (op.updateImageProperties) {
+      var ip = op.updateImageProperties;
+      var iProps = {};
+      var iFields = [];
+      if (ip.transparency !== undefined) { iProps.transparency = ip.transparency; iFields.push('transparency'); }
+      if (ip.brightness !== undefined) { iProps.brightness = ip.brightness; iFields.push('brightness'); }
+      if (ip.contrast !== undefined) { iProps.contrast = ip.contrast; iFields.push('contrast'); }
+      if (ip.recolor) { iProps.recolor = {recolorStops: ip.recolor}; iFields.push('recolor'); }
+      if (iFields.length > 0) {
+        apiRequests.push({updateImageProperties: {objectId: ip.objectId, imageProperties: iProps, fields: iFields.join(',')}});
+      }
+
+    } else if (op.shapeOutline) {
+      var ol = op.shapeOutline;
+      var outline = {};
+      var olFields = [];
+      if (ol.color) {
+        var olc = ol.color;
+        if (typeof olc === 'string' && olc.charAt(0) === '#') {
+          olc = {red: parseInt(olc.substr(1,2),16)/255, green: parseInt(olc.substr(3,2),16)/255, blue: parseInt(olc.substr(5,2),16)/255};
+        }
+        outline.outlineFill = {solidFill: {color: {rgbColor: olc}}};
+        olFields.push('outline.outlineFill.solidFill.color');
+      }
+      if (ol.weight !== undefined) { outline.weight = {magnitude: ol.weight, unit: 'PT'}; olFields.push('outline.weight'); }
+      if (ol.dashStyle) { outline.dashStyle = ol.dashStyle; olFields.push('outline.dashStyle'); }
+      if (olFields.length > 0) {
+        apiRequests.push({updateShapeProperties: {objectId: ol.objectId, shapeProperties: {outline: outline}, fields: olFields.join(',')}});
+      }
+
     } else if (op.raw) {
       apiRequests.push(op.raw);
     }
