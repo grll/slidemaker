@@ -1,28 +1,76 @@
 #!/usr/bin/env python3
-"""Slidemaker - Create and edit Google Slides from a template via the API."""
+"""Slidemaker - Create and edit Google Slides from a template via the API.
+
+Supports two backends:
+  1. Direct Google API (requires credentials.json + OAuth)
+  2. Apps Script web app (requires WEBAPP_URL in .env or --webapp flag)
+"""
 
 import argparse
 import json
 import os
 import sys
-
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-
-SCOPES = [
-    "https://www.googleapis.com/auth/presentations",
-    "https://www.googleapis.com/auth/drive",
-]
+import urllib.request
+import urllib.error
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_ID = "1cWqfy4vpwbmlgPaN09ha02QILAj3phf_akY9C4VqtVE"
+ENV_FILE = os.path.join(BASE_DIR, ".env")
 CREDENTIALS_FILE = os.path.join(BASE_DIR, "credentials.json")
 TOKEN_FILE = os.path.join(BASE_DIR, "token.json")
-TEMPLATE_ID = "1cWqfy4vpwbmlgPaN09ha02QILAj3phf_akY9C4VqtVE"
 
+
+# --- BACKEND SELECTION ---
+
+def get_webapp_url():
+    """Read WEBAPP_URL from .env file."""
+    if os.path.exists(ENV_FILE):
+        with open(ENV_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("WEBAPP_URL="):
+                    return line.split("=", 1)[1].strip().strip("'\"")
+    return None
+
+
+def use_webapp():
+    """Check if we should use the Apps Script backend."""
+    return get_webapp_url() is not None
+
+
+# --- APPS SCRIPT BACKEND ---
+
+def webapp_request(action, **kwargs):
+    """Send a request to the Apps Script web app."""
+    url = get_webapp_url()
+    if not url:
+        print("ERROR: WEBAPP_URL not set in .env", file=sys.stderr)
+        sys.exit(1)
+
+    payload = {"action": action, **kwargs}
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8") if e.fp else ""
+        print(f"ERROR: HTTP {e.code}: {body}", file=sys.stderr)
+        sys.exit(1)
+
+
+# --- DIRECT API BACKEND ---
 
 def get_creds():
+    from google.auth.transport.requests import Request
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+
+    SCOPES = [
+        "https://www.googleapis.com/auth/presentations",
+        "https://www.googleapis.com/auth/drive",
+    ]
     creds = None
     if os.path.exists(TOKEN_FILE):
         creds = Credentials.from_authorized_user_file(TOKEN_FILE, SCOPES)
@@ -40,7 +88,9 @@ def get_creds():
     return creds
 
 
-def get_services(creds):
+def get_services():
+    from googleapiclient.discovery import build
+    creds = get_creds()
     slides = build("slides", "v1", credentials=creds)
     drive = build("drive", "v3", credentials=creds)
     return slides, drive
@@ -55,7 +105,6 @@ def extract_text(text_obj):
 
 
 def collect_text_elements(elements, result=None):
-    """Recursively collect all text-bearing elements from a slide, including inside groups."""
     if result is None:
         result = []
     for elem in elements:
@@ -72,192 +121,139 @@ def collect_text_elements(elements, result=None):
     return result
 
 
-# --- AUTH ---
+# --- COMMANDS ---
 
 def cmd_auth(_args):
-    creds = get_creds()
-    _, drive = get_services(creds)
-    about = drive.about().get(fields="user").execute()
-    print(f"Authenticated as: {about['user']['emailAddress']}")
+    if use_webapp():
+        result = webapp_request("inspect", presentationId=TEMPLATE_ID)
+        if "error" in result:
+            print(f"ERROR: {result['error']}", file=sys.stderr)
+            sys.exit(1)
+        print(f"Apps Script backend OK. Template: {result.get('title', '?')}")
+    else:
+        creds = get_creds()
+        from googleapiclient.discovery import build
+        drive = build("drive", "v3", credentials=creds)
+        about = drive.about().get(fields="user").execute()
+        print(f"Authenticated as: {about['user']['emailAddress']}")
 
-
-# --- INSPECT ---
 
 def cmd_inspect(args):
-    """Show all template slides with their text elements."""
-    creds = get_creds()
-    slides_svc, _ = get_services(creds)
+    pres_id = args.presentation_id or TEMPLATE_ID
+    if use_webapp():
+        result = webapp_request("inspect", presentationId=pres_id)
+    else:
+        slides_svc, _ = get_services()
+        pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+        result = {
+            "title": pres.get("title", ""),
+            "presentationId": pres.get("presentationId", ""),
+            "slideCount": len(pres.get("slides", [])),
+            "slides": [],
+        }
+        for i, slide in enumerate(pres.get("slides", [])):
+            text_elements = collect_text_elements(slide.get("pageElements", []))
+            result["slides"].append({
+                "index": i, "objectId": slide["objectId"], "elements": text_elements,
+            })
+    print(json.dumps(result, indent=2))
 
-    pres_id = args.presentation_id if hasattr(args, 'presentation_id') and args.presentation_id else TEMPLATE_ID
-    pres = slides_svc.presentations().get(presentationId=pres_id).execute()
-
-    catalog = {
-        "title": pres.get("title", ""),
-        "presentationId": pres.get("presentationId", ""),
-        "slideCount": len(pres.get("slides", [])),
-        "slides": [],
-    }
-
-    for i, slide in enumerate(pres.get("slides", [])):
-        text_elements = collect_text_elements(slide.get("pageElements", []))
-        catalog["slides"].append({
-            "index": i,
-            "objectId": slide["objectId"],
-            "elements": text_elements,
-        })
-
-    print(json.dumps(catalog, indent=2))
-
-
-# --- CREATE ---
 
 def cmd_create(args):
-    """Create a new presentation from the template.
-
-    Input JSON:
-    {
-      "title": "My Presentation",
-      "keep_slides": [0, 5, 13],        // template slide indices to keep (in order)
-      "replacements": {                   // element objectId -> new text
-        "g708a6ee8a1_0_59": "NEW TITLE",
-        "g708a6ee8a1_0_60": "New subtitle"
-      }
-    }
-    """
-    creds = get_creds()
-    slides_svc, drive_svc = get_services(creds)
     content = json.loads(args.content)
-    title = content.get("title", "Untitled Presentation")
-    keep_indices = set(content.get("keep_slides", []))
-    replacements = content.get("replacements", {})
 
-    # 1. Copy template
-    copy = drive_svc.files().copy(fileId=TEMPLATE_ID, body={"name": title}).execute()
-    pres_id = copy["id"]
-    url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
+    if use_webapp():
+        result = webapp_request("create", **content)
+    else:
+        slides_svc, drive_svc = get_services()
+        title = content.get("title", "Untitled Presentation")
+        keep_indices = set(content.get("keep_slides", []))
+        replacements = content.get("replacements", {})
 
-    # 2. Get the copy
-    pres = slides_svc.presentations().get(presentationId=pres_id).execute()
-    all_slides = pres.get("slides", [])
+        copy = drive_svc.files().copy(fileId=TEMPLATE_ID, body={"name": title}).execute()
+        pres_id = copy["id"]
+        url = f"https://docs.google.com/presentation/d/{pres_id}/edit"
 
-    # 3. Delete unwanted slides (must keep at least one)
-    slides_to_delete = [s["objectId"] for i, s in enumerate(all_slides) if i not in keep_indices]
-    if slides_to_delete and len(slides_to_delete) < len(all_slides):
-        delete_reqs = [{"deleteObject": {"objectId": sid}} for sid in slides_to_delete]
-        slides_svc.presentations().batchUpdate(
-            presentationId=pres_id, body={"requests": delete_reqs}
-        ).execute()
-
-    # 4. Reorder slides to match the order in keep_slides
-    if "keep_slides" in content and len(content["keep_slides"]) > 1:
-        # Re-read after deletion
         pres = slides_svc.presentations().get(presentationId=pres_id).execute()
-        current_slides = pres.get("slides", [])
-        current_ids = [s["objectId"] for s in current_slides]
+        all_slides = pres.get("slides", [])
 
-        # Build desired order from keep_slides
-        desired_ids = []
-        for idx in content["keep_slides"]:
-            sid = all_slides[idx]["objectId"]
-            if sid in current_ids:
-                desired_ids.append(sid)
+        slides_to_delete = [s["objectId"] for i, s in enumerate(all_slides) if i not in keep_indices]
+        if slides_to_delete and len(slides_to_delete) < len(all_slides):
+            delete_reqs = [{"deleteObject": {"objectId": sid}} for sid in slides_to_delete]
+            slides_svc.presentations().batchUpdate(presentationId=pres_id, body={"requests": delete_reqs}).execute()
 
-        # Move slides to correct positions
-        move_reqs = []
-        for target_pos, sid in enumerate(desired_ids):
-            move_reqs.append({
-                "updateSlidesPosition": {
-                    "slideObjectIds": [sid],
-                    "insertionIndex": target_pos,
-                }
-            })
-        if move_reqs:
-            slides_svc.presentations().batchUpdate(
-                presentationId=pres_id, body={"requests": move_reqs}
-            ).execute()
+        if "keep_slides" in content and len(content["keep_slides"]) > 1:
+            pres = slides_svc.presentations().get(presentationId=pres_id).execute()
+            current_ids = [s["objectId"] for s in pres.get("slides", [])]
+            desired_ids = [all_slides[idx]["objectId"] for idx in content["keep_slides"] if all_slides[idx]["objectId"] in current_ids]
+            move_reqs = [{"updateSlidesPosition": {"slideObjectIds": [sid], "insertionIndex": pos}} for pos, sid in enumerate(desired_ids)]
+            if move_reqs:
+                slides_svc.presentations().batchUpdate(presentationId=pres_id, body={"requests": move_reqs}).execute()
 
-    # 5. Apply text replacements
-    if replacements:
-        reqs = []
-        for elem_id, new_text in replacements.items():
-            reqs.append({"deleteText": {"objectId": elem_id, "textRange": {"type": "ALL"}}})
-            reqs.append({"insertText": {"objectId": elem_id, "text": new_text, "insertionIndex": 0}})
-        slides_svc.presentations().batchUpdate(
-            presentationId=pres_id, body={"requests": reqs}
-        ).execute()
+        if replacements:
+            reqs = []
+            for elem_id, new_text in replacements.items():
+                reqs.append({"deleteText": {"objectId": elem_id, "textRange": {"type": "ALL"}}})
+                reqs.append({"insertText": {"objectId": elem_id, "text": new_text, "insertionIndex": 0}})
+            slides_svc.presentations().batchUpdate(presentationId=pres_id, body={"requests": reqs}).execute()
 
-    print(json.dumps({"presentationId": pres_id, "url": url}))
+        result = {"presentationId": pres_id, "url": url}
 
+    if "error" in result:
+        print(f"ERROR: {result['error']}", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps(result))
 
-# --- GET ---
 
 def cmd_get(args):
-    """Get the current content of a presentation as JSON."""
-    creds = get_creds()
-    slides_svc, _ = get_services(creds)
-    pres = slides_svc.presentations().get(presentationId=args.presentation_id).execute()
+    if use_webapp():
+        result = webapp_request("get", presentationId=args.presentation_id)
+    else:
+        slides_svc, _ = get_services()
+        pres = slides_svc.presentations().get(presentationId=args.presentation_id).execute()
+        result = {
+            "title": pres.get("title", ""),
+            "presentationId": pres.get("presentationId", ""),
+            "slides": [],
+        }
+        for i, slide in enumerate(pres.get("slides", [])):
+            text_elements = collect_text_elements(slide.get("pageElements", []))
+            result["slides"].append({
+                "index": i, "objectId": slide["objectId"], "elements": text_elements,
+            })
+    print(json.dumps(result, indent=2))
 
-    output = {
-        "title": pres.get("title", ""),
-        "presentationId": pres.get("presentationId", ""),
-        "slides": [],
-    }
-
-    for i, slide in enumerate(pres.get("slides", [])):
-        text_elements = collect_text_elements(slide.get("pageElements", []))
-        output["slides"].append({
-            "index": i,
-            "objectId": slide["objectId"],
-            "elements": text_elements,
-        })
-
-    print(json.dumps(output, indent=2))
-
-
-# --- EDIT ---
 
 def cmd_edit(args):
-    """Edit a presentation.
-
-    Input JSON (list of operations):
-    [
-      {"replaceText": {"objectId": "elem_id", "text": "new text"}},
-      {"deleteSlide": {"objectId": "slide_id"}},
-      {"duplicateSlide": {"objectId": "slide_id"}},
-      {"moveSlide": {"objectId": "slide_id", "insertionIndex": 2}},
-      {"raw": {<any Slides API batchUpdate request>}}
-    ]
-    """
-    creds = get_creds()
-    slides_svc, _ = get_services(creds)
-    pres_id = args.presentation_id
     ops = json.loads(args.requests)
 
-    pres = slides_svc.presentations().get(presentationId=pres_id).execute()
-    api_requests = []
-
-    for op in ops:
-        if "replaceText" in op:
-            r = op["replaceText"]
-            api_requests.append({"deleteText": {"objectId": r["objectId"], "textRange": {"type": "ALL"}}})
-            api_requests.append({"insertText": {"objectId": r["objectId"], "text": r["text"], "insertionIndex": 0}})
-        elif "deleteSlide" in op:
-            api_requests.append({"deleteObject": {"objectId": op["deleteSlide"]["objectId"]}})
-        elif "duplicateSlide" in op:
-            api_requests.append({"duplicateObject": {"objectId": op["duplicateSlide"]["objectId"]}})
-        elif "moveSlide" in op:
-            m = op["moveSlide"]
-            api_requests.append({"updateSlidesPosition": {"slideObjectIds": [m["objectId"]], "insertionIndex": m["insertionIndex"]}})
-        elif "raw" in op:
-            api_requests.append(op["raw"])
-
-    if api_requests:
-        result = slides_svc.presentations().batchUpdate(
-            presentationId=pres_id, body={"requests": api_requests}
-        ).execute()
-        print(json.dumps({"applied": len(api_requests), "replies": len(result.get("replies", []))}))
+    if use_webapp():
+        result = webapp_request("edit", presentationId=args.presentation_id, requests=ops)
     else:
-        print(json.dumps({"applied": 0}))
+        slides_svc, _ = get_services()
+        api_requests = []
+        for op in ops:
+            if "replaceText" in op:
+                r = op["replaceText"]
+                api_requests.append({"deleteText": {"objectId": r["objectId"], "textRange": {"type": "ALL"}}})
+                api_requests.append({"insertText": {"objectId": r["objectId"], "text": r["text"], "insertionIndex": 0}})
+            elif "deleteSlide" in op:
+                api_requests.append({"deleteObject": {"objectId": op["deleteSlide"]["objectId"]}})
+            elif "duplicateSlide" in op:
+                api_requests.append({"duplicateObject": {"objectId": op["duplicateSlide"]["objectId"]}})
+            elif "moveSlide" in op:
+                m = op["moveSlide"]
+                api_requests.append({"updateSlidesPosition": {"slideObjectIds": [m["objectId"]], "insertionIndex": m["insertionIndex"]}})
+            elif "raw" in op:
+                api_requests.append(op["raw"])
+
+        if api_requests:
+            res = slides_svc.presentations().batchUpdate(presentationId=args.presentation_id, body={"requests": api_requests}).execute()
+            result = {"applied": len(api_requests), "replies": len(res.get("replies", []))}
+        else:
+            result = {"applied": 0}
+
+    print(json.dumps(result))
 
 
 # --- MAIN ---
@@ -266,19 +262,19 @@ def main():
     parser = argparse.ArgumentParser(description="Slidemaker - Google Slides automation")
     sub = parser.add_subparsers(dest="command")
 
-    sub.add_parser("auth", help="Authenticate with Google")
+    sub.add_parser("auth", help="Authenticate / test connection")
 
     p_inspect = sub.add_parser("inspect", help="Inspect template or presentation")
-    p_inspect.add_argument("presentation_id", nargs="?", default=None, help="Presentation ID (default: template)")
+    p_inspect.add_argument("presentation_id", nargs="?", default=None)
 
     p_create = sub.add_parser("create", help="Create presentation from template")
     p_create.add_argument("content", help="JSON: {title, keep_slides, replacements}")
 
     p_get = sub.add_parser("get", help="Get presentation content")
-    p_get.add_argument("presentation_id", help="Presentation ID")
+    p_get.add_argument("presentation_id")
 
     p_edit = sub.add_parser("edit", help="Edit a presentation")
-    p_edit.add_argument("presentation_id", help="Presentation ID")
+    p_edit.add_argument("presentation_id")
     p_edit.add_argument("requests", help="JSON list of edit operations")
 
     args = parser.parse_args()
