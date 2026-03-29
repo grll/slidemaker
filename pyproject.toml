@@ -1,0 +1,10 @@
+[project]
+name = "slidemaker"
+version = "0.1.0"
+description = "Create and edit Google Slides from templates via the API"
+requires-python = ">=3.10"
+dependencies = [
+    "google-api-python-client",
+    "google-auth-httplib2",
+    "google-auth-oauthlib",
+]

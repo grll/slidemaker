@@ -1,7 +1,7 @@
 ---
 name: review-presentation
 description: Review an existing presentation by downloading thumbnails and analyzing each slide visually — use when the user asks to check, review, or improve a deck
-allowed-tools: Bash(source *), Read, Glob
+allowed-tools: Bash(uv run python slidemaker.py *), Read, Glob
 argument-hint: <presentation_id or url>
 ---
 
@@ -20,7 +20,7 @@ Extract the presentation ID from a URL like `https://docs.google.com/presentatio
 ### 1. Get current state
 
 ```bash
-source venv/bin/activate && python slidemaker.py get <presentation_id>
+uv run python slidemaker.py get <presentation_id>
 ```
 
 Note the number of slides and their content.
@@ -28,7 +28,7 @@ Note the number of slides and their content.
 ### 2. Download thumbnails
 
 ```bash
-source venv/bin/activate && python slidemaker.py thumbnails <presentation_id>
+uv run python slidemaker.py thumbnails <presentation_id>
 ```
 
 ### 3. Review each slide

@@ -1,7 +1,7 @@
 ---
 name: edit-presentation
 description: Edit an existing Google Slides presentation — use when the user wants to change content, styling, layout, or structure of a deck
-allowed-tools: Bash(source *), Read, Glob
+allowed-tools: Bash(uv run python slidemaker.py *), Read, Glob
 argument-hint: <presentation_id or url> <changes>
 ---
 
@@ -18,7 +18,7 @@ Modify an existing presentation based on the user's instructions.
 ### 1. Read current state
 
 ```bash
-source venv/bin/activate && python slidemaker.py get -d <presentation_id>
+uv run python slidemaker.py get -d <presentation_id>
 ```
 
 This returns all slides, elements, positions, sizes, and font info. Use this to understand the current layout before making changes.
@@ -26,7 +26,7 @@ This returns all slides, elements, positions, sizes, and font info. Use this to 
 ### 2. Download thumbnails for context
 
 ```bash
-source venv/bin/activate && python slidemaker.py thumbnails <presentation_id>
+uv run python slidemaker.py thumbnails <presentation_id>
 ```
 
 Read the thumbnails to visually understand the current state.
@@ -61,7 +61,7 @@ Based on the user's request, determine which operations to use:
 Batch as many operations as possible into a single `edit` call:
 
 ```bash
-source venv/bin/activate && python slidemaker.py edit <presentation_id> '[op1, op2, ...]'
+uv run python slidemaker.py edit <presentation_id> '[op1, op2, ...]'
 ```
 
 **Ordering matters**: operations are applied sequentially. Put `createShape` before `insertText` on that shape. Put `deleteText`/`replaceText` before `textStyle` if changing both content and style.
@@ -69,7 +69,7 @@ source venv/bin/activate && python slidemaker.py edit <presentation_id> '[op1, o
 ### 5. Verify with thumbnails
 
 ```bash
-source venv/bin/activate && python slidemaker.py thumbnails <presentation_id>
+uv run python slidemaker.py thumbnails <presentation_id>
 ```
 
 Read each affected slide's thumbnail to confirm:

@@ -1,7 +1,7 @@
 ---
 name: create-presentation
 description: Create a new Google Slides presentation from a template — use when the user describes a presentation idea or topic
-allowed-tools: Bash(source *), Read, Glob
+allowed-tools: Bash(uv run python slidemaker.py *), Read, Glob
 ---
 
 # Create Presentation
@@ -14,7 +14,7 @@ Create a new Google Slides presentation from a registered template based on the 
 
 ## Registered templates
 
-!`source venv/bin/activate && python slidemaker.py templates 2>/dev/null`
+!`uv run python slidemaker.py templates 2>/dev/null`
 
 ## Steps
 
@@ -34,7 +34,7 @@ Look at the template slide thumbnails to pick the best layouts for the content. 
 Read the catalog to see available slides and their text elements:
 
 ```bash
-source venv/bin/activate && python slidemaker.py inspect --template <name>
+uv run python slidemaker.py inspect --template <name>
 ```
 
 Choose slides based on **visual fit** (look at thumbnails) and **content structure** (how many text elements, what kind of layout).
@@ -62,7 +62,7 @@ Construct the JSON with:
 **Important**: Look at element text lengths in the catalog. Template text boxes are sized for the original placeholder text. Keep replacement text similar in length, or plan to adjust font sizes in step 6.
 
 ```bash
-source venv/bin/activate && python slidemaker.py create --template <name> '<json>'
+uv run python slidemaker.py create --template <name> '<json>'
 ```
 
 ### 5. Review with thumbnails
@@ -70,7 +70,7 @@ source venv/bin/activate && python slidemaker.py create --template <name> '<json
 Download and visually inspect every slide:
 
 ```bash
-source venv/bin/activate && python slidemaker.py thumbnails <presentation_id>
+uv run python slidemaker.py thumbnails <presentation_id>
 ```
 
 Read each thumbnail image and check for:
@@ -89,7 +89,7 @@ For each problem found, apply the right fix:
 - **Wrong content** → `replaceText`
 
 ```bash
-source venv/bin/activate && python slidemaker.py edit <presentation_id> '[...]'
+uv run python slidemaker.py edit <presentation_id> '[...]'
 ```
 
 ### 7. Final review

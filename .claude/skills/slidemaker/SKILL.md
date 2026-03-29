@@ -21,7 +21,7 @@ Slidemaker creates and edits Google Slides presentations from registered templat
 | `edit <pres_id> '<json>'` | Edit a presentation |
 | `thumbnails <pres_id> [-o dir]` | Download slide PNGs for visual review |
 
-Always run commands with: `source venv/bin/activate && python slidemaker.py <command>`
+Always run commands with: `uv run python slidemaker.py <command>`
 
 ## Create JSON format
 
