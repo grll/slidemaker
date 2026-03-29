@@ -20,14 +20,20 @@
 //   API_KEY            - shared secret (required)
 //   ALLOWED_TEMPLATES  - comma-separated list of template presentation IDs
 //   SHARE_WITH         - email address to share created presentations with (optional)
+//
+// No hardcoded IDs — all template IDs come from ALLOWED_TEMPLATES.
 
 function getConfig() {
   const props = PropertiesService.getScriptProperties();
-  return {
+  var config = {
     apiKey: props.getProperty('API_KEY') || '',
     allowedTemplates: (props.getProperty('ALLOWED_TEMPLATES') || '').split(',').map(function(s) { return s.trim(); }).filter(Boolean),
     shareWith: props.getProperty('SHARE_WITH') || '',
   };
+  if (config.allowedTemplates.length === 0) {
+    throw new Error('ALLOWED_TEMPLATES not configured in Script Properties');
+  }
+  return config;
 }
 
 function doPost(e) {

@@ -18,7 +18,7 @@ No Google Cloud project needed. Everything runs inside Google's own sandbox.
 4. In the left sidebar, click **Services** → **+** → add **Google Slides API** (listed as `Slides`, keep default version `v1`)
 5. Set up **Script Properties** (Project Settings → Script Properties → Add):
    - `API_KEY` — a random secret string (generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`)
-   - `ALLOWED_TEMPLATES` — comma-separated list of template presentation IDs (e.g. `1cWqfy4vpwbmlgPaN09ha02QILAj3phf_akY9C4VqtVE`)
+   - `ALLOWED_TEMPLATES` — comma-separated list of template presentation IDs (the ID from the Google Slides URL)
    - `SHARE_WITH` — (optional) your email address to auto-share created presentations with you
 6. Click **Deploy** → **New deployment**
    - Type: **Web app**
